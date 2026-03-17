@@ -1,0 +1,160 @@
+#!/usr/bin/env python
+'''
+https://www.economist.com/the-world-in-brief
+'''
+
+import json
+import re
+
+from calibre.ptempfile import PersistentTemporaryFile
+from calibre.web.feeds.news import BasicNewsRecipe
+
+
+class Espresso(BasicNewsRecipe):
+    title = 'The Economist Espresso'
+    language = 'en_GB'
+    __author__ = 'unkn0wn'
+    description = (
+        'Espresso is a rich, full-flavoured shot of daily global analysis '
+        'from the editors of The Economist to get you up to speed, fast. '
+        'Maximise your understanding of the most significant business, '
+        'economic, political and cultural developments globally.'
+    )
+    no_stylesheets = True
+    remove_attributes = ['height', 'width', 'style']
+    masthead_url = 'https://www.livemint.com/lm-img/dev/economist-logo-oneline.png'
+    cover_url = (
+        'https://downloadr2.apkmirror.com/wp-content/uploads/2021/10/75/615777cc6611b.png'
+    )
+
+    extra_css = '''
+        h1 { text-align:center; }
+        .sub, .img-cap { text-align:center; font-size:small; color:#404040; }
+        .img-credit { text-align:center; font-size:x-small; color:#606060; }
+        blockquote { font-size:x-large; font-style:italic; color:#202020; }
+        .quote-author { text-align:right; font-size:small; color:#404040; }
+        hr { margin: 1em 0; }
+    '''
+
+    def _img_url(self, url):
+        return re.sub(
+            r'economist\.com/',
+            'economist.com/cdn-cgi/image/width=600,quality=80,format=auto/',
+            url,
+        )
+
+    def _save_html(self, html):
+        pt = PersistentTemporaryFile('.html')
+        pt.write(html.encode('utf-8'))
+        pt.close()
+        return 'file:///' + pt.name
+
+    def _build_gobbets_html(self, content):
+        html = '<html><head><title>The World in Brief</title></head><body>'
+        html += '<h1>The world in brief</h1>'
+        html += '<p class="sub">Catch up quickly on the global stories that matter</p>'
+
+        li = content.get('leadImage') or {}
+        if li.get('url'):
+            html += f'<div class="img-cap"><img src="{self._img_url(li["url"])}" alt="{li.get("alt", "")}"/></div>'
+            if li.get('credit'):
+                label = li.get('creditLabel', 'Photograph')
+                html += f'<p class="img-credit">{label}: {li["credit"]}</p>'
+
+        for g in content.get('gobbets', []):
+            html += f'<hr/><p>{g}</p>'
+
+        html += '</body></html>'
+        return html
+
+    def _build_chunk_html(self, chunk):
+        title = chunk.get('title', '')
+        html = f'<html><head><title>{title}</title></head><body>'
+        html += f'<h1>{title}</h1>'
+
+        ci = chunk.get('leadImage') or {}
+        if ci.get('url'):
+            html += f'<div class="img-cap"><img src="{self._img_url(ci["url"])}" alt="{ci.get("altText", "")}"/></div>'
+            if ci.get('credit'):
+                html += f'<p class="img-credit">{ci["credit"]}</p>'
+
+        for p in chunk.get('paragraphs', []):
+            if isinstance(p, str):
+                html += f'<p>{p}</p>'
+
+        html += '</body></html>'
+        return html
+
+    def _build_zinger_html(self, zinger):
+        html = '<html><head><title>Quote of the day</title></head><body>'
+        html += '<h1>Quote of the day</h1>'
+        html += f'<blockquote>\u201c{zinger["quote"]}\u201d</blockquote>'
+        if zinger.get('author'):
+            html += f'<p class="quote-author">\u2014 {zinger["author"]}</p>'
+        html += '</body></html>'
+        return html
+
+    def parse_index(self):
+        self.log('Fetching The World in Brief via __NEXT_DATA__...')
+        from calibre import browser as br_module
+        from mechanize import Request
+
+        br = br_module()
+        req = Request(
+            'https://www.economist.com/the-world-in-brief',
+            headers={'User-Agent': 'TheEconomist-Liskov-android', 'Accept': 'text/html'},
+        )
+        resp = br.open(req)
+        raw = resp.read()
+
+        try:
+            import gzip
+            raw = gzip.decompress(raw)
+        except Exception:
+            pass
+
+        page_html = raw.decode('utf-8', errors='replace')
+
+        m = re.search(r'<script\s+id="__NEXT_DATA__"[^>]*>(.*?)</script>', page_html, re.DOTALL)
+        if not m:
+            raise ValueError(
+                'Could not find __NEXT_DATA__ in page. '
+                'The website structure may have changed.'
+            )
+
+        data = json.loads(m.group(1))
+        content = data['props']['pageProps']['content']
+
+        # Use lead image as cover if available
+        li = content.get('leadImage') or {}
+        if li.get('url'):
+            self.cover_url = self._img_url(li['url'])
+
+        articles = []
+
+        # Gobbets as the first article
+        articles.append({
+            'title': 'The World in Brief',
+            'url': self._save_html(self._build_gobbets_html(content)),
+            'description': 'Catch up quickly on the global stories that matter',
+        })
+
+        # Each chunk as a separate article
+        for chunk in content.get('chunks', []):
+            title = chunk.get('title', '').strip()
+            if title:
+                articles.append({
+                    'title': title,
+                    'url': self._save_html(self._build_chunk_html(chunk)),
+                })
+
+        # Quote of the day
+        zinger = content.get('zinger') or {}
+        if zinger.get('quote'):
+            articles.append({
+                'title': 'Quote of the day',
+                'url': self._save_html(self._build_zinger_html(zinger)),
+                'description': zinger.get('quote', '')[:80],
+            })
+
+        return [('Espresso', articles)]
