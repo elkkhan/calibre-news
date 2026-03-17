@@ -108,13 +108,15 @@ class Espresso(BasicNewsRecipe):
                 req = Request(logo_url, headers={'User-Agent': 'TheEconomist-Liskov-android'})
                 logo_data = urlopen(req).read()
                 logo = Image.open(BytesIO(logo_data)).convert('RGBA')
-            # Make white pixels transparent
+            # Make white pixels transparent, recolor non-white (red) to white
             pixels = logo.load()
             for y_px in range(logo.height):
                 for x_px in range(logo.width):
                     r, g, b, a = pixels[x_px, y_px]
                     if r > 200 and g > 200 and b > 200:
                         pixels[x_px, y_px] = (r, g, b, 0)
+                    else:
+                        pixels[x_px, y_px] = (255, 255, 255, a)
             # Scale logo to fit cover width with padding
             logo_w = COVER_W - 80
             logo_h = int(logo.height * logo_w / logo.width)
