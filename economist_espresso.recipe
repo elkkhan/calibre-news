@@ -137,7 +137,7 @@ class Espresso(BasicNewsRecipe):
         except Exception:
             dt = datetime.now(timezone.utc)
         day_line = dt.strftime('%A')
-        date_line = dt.strftime('%B %-d, %Y')
+        date_line = dt.strftime('%B %-d')
 
         font_day = load_font(64)
         font_date_num = load_font(64)
