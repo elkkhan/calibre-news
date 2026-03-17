@@ -5,6 +5,7 @@ https://www.economist.com/the-world-in-brief
 
 import json
 import re
+from datetime import datetime, timezone
 
 from calibre.ptempfile import PersistentTemporaryFile
 from calibre.web.feeds.news import BasicNewsRecipe
@@ -35,6 +36,131 @@ class Espresso(BasicNewsRecipe):
         .quote-author { text-align:right; font-size:small; color:#404040; }
         hr { margin: 1em 0; }
     '''
+
+    def _generate_cover(self, img_url, date_str):
+        """Download lead image, crop to portrait, overlay title and date."""
+        import os
+        from io import BytesIO
+        from urllib.request import Request, urlopen
+
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+        COVER_W, COVER_H = 600, 900
+
+        # Download the image
+        req = Request(img_url, headers={'User-Agent': 'TheEconomist-Liskov-android'})
+        img_data = urlopen(req).read()
+        img = Image.open(BytesIO(img_data)).convert('RGB')
+
+        # Place image centered on dark background — downscale if needed, never upscale
+        bg = Image.new('RGB', (COVER_W, COVER_H), (18, 18, 18))
+        src_w, src_h = img.size
+        scale = min(COVER_W / src_w, COVER_H / src_h, 1.0)
+        new_w, new_h = int(src_w * scale), int(src_h * scale)
+        if scale < 1.0:
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+        # Center vertically, nudge slightly above center to leave room for date
+        x = (COVER_W - new_w) // 2
+        y = (COVER_H - new_h) // 2 - 30
+        y = max(0, y)
+        bg.paste(img, (x, y))
+
+        # Dark gradient overlays (top and bottom) via alpha compositing
+        overlay = Image.new('RGBA', (COVER_W, COVER_H), (0, 0, 0, 0))
+        odraw = ImageDraw.Draw(overlay)
+        for yi in range(220):
+            alpha = int(210 * (1 - yi / 220))
+            odraw.line([(0, yi), (COVER_W, yi)], fill=(0, 0, 0, alpha))
+        for yi in range(COVER_H - 300, COVER_H):
+            alpha = int(230 * ((yi - (COVER_H - 300)) / 300))
+            odraw.line([(0, yi), (COVER_W, yi)], fill=(0, 0, 0, alpha))
+        bg = Image.alpha_composite(bg.convert('RGBA'), overlay).convert('RGB')
+        draw = ImageDraw.Draw(bg)
+
+        # Load font — try common paths, fall back to default
+        def load_font(size):
+            paths = [
+                '/System/Library/Fonts/HelveticaNeue.ttc',
+                '/System/Library/Fonts/Helvetica.ttc',
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+                '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+            ]
+            for p in paths:
+                if os.path.exists(p):
+                    try:
+                        return ImageFont.truetype(p, size)
+                    except Exception:
+                        continue
+            return ImageFont.load_default()
+
+        font_espresso = load_font(36)
+
+        # Economist red bar at top
+        draw.rectangle([(0, 0), (COVER_W, 6)], fill='#E3120B')
+
+        # Place the real Economist logo — try local bundled copy first, then URL
+        try:
+            local_logo = os.path.join(os.getcwd(), 'covers', 'economist_logo.png')
+            if os.path.exists(local_logo):
+                logo = Image.open(local_logo).convert('RGBA')
+            else:
+                logo_url = 'https://www.livemint.com/lm-img/dev/economist-logo-oneline.png'
+                req = Request(logo_url, headers={'User-Agent': 'TheEconomist-Liskov-android'})
+                logo_data = urlopen(req).read()
+                logo = Image.open(BytesIO(logo_data)).convert('RGBA')
+            # Make white pixels transparent
+            pixels = logo.load()
+            for y_px in range(logo.height):
+                for x_px in range(logo.width):
+                    r, g, b, a = pixels[x_px, y_px]
+                    if r > 200 and g > 200 and b > 200:
+                        pixels[x_px, y_px] = (r, g, b, 0)
+            # Scale logo to fit cover width with padding
+            logo_w = COVER_W - 80
+            logo_h = int(logo.height * logo_w / logo.width)
+            logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+            logo_x = (COVER_W - logo_w) // 2
+            bg.paste(logo, (logo_x, 24), logo)
+            espresso_y = 24 + logo_h + 8
+        except Exception:
+            espresso_y = 30
+
+        # "Espresso" subtitle
+        text = 'Espresso'
+        bbox = draw.textbbox((0, 0), text, font=font_espresso)
+        tw = bbox[2] - bbox[0]
+        draw.text(((COVER_W - tw) // 2, espresso_y), text, fill='white', font=font_espresso)
+
+        # Date at bottom — two lines: day of week + date
+        try:
+            dt = datetime.fromisoformat(date_pub.replace('Z', '+00:00'))
+        except Exception:
+            dt = datetime.now(timezone.utc)
+        day_line = dt.strftime('%A')
+        date_line = dt.strftime('%B %-d, %Y')
+
+        font_day = load_font(64)
+        font_date_num = load_font(64)
+
+        bbox1 = draw.textbbox((0, 0), day_line, font=font_day)
+        bbox2 = draw.textbbox((0, 0), date_line, font=font_date_num)
+        tw1 = bbox1[2] - bbox1[0]
+        tw2 = bbox2[2] - bbox2[0]
+        th1 = bbox1[3] - bbox1[1]
+        line_gap = 8
+        total_h = th1 + line_gap + (bbox2[3] - bbox2[1])
+        y_start = COVER_H - total_h - 30
+        draw.text(((COVER_W - tw1) // 2, y_start), day_line, fill='white', font=font_day)
+        draw.text(((COVER_W - tw2) // 2, y_start + th1 + line_gap), date_line, fill='white', font=font_date_num)
+
+        # Red bar at bottom
+        draw.rectangle([(0, COVER_H - 6), (COVER_W, COVER_H)], fill='#E3120B')
+
+        # Save to temp file
+        pt = PersistentTemporaryFile('.jpg')
+        bg.save(pt, 'JPEG', quality=90)
+        pt.close()
+        return pt.name
 
     def _img_url(self, url):
         return re.sub(
@@ -125,10 +251,23 @@ class Espresso(BasicNewsRecipe):
         data = json.loads(m.group(1))
         content = data['props']['pageProps']['content']
 
-        # Use lead image as cover if available
+        # Generate cover from lead image
         li = content.get('leadImage') or {}
+        date_pub = content.get('datePublished', '')
+        try:
+            dt = datetime.fromisoformat(date_pub.replace('Z', '+00:00'))
+            date_str = dt.strftime('%A, %B %-d, %Y')
+        except Exception:
+            date_str = datetime.now(timezone.utc).strftime('%A, %B %-d, %Y')
+
         if li.get('url'):
-            self.cover_url = self._img_url(li['url'])
+            try:
+                self.cover_url = self._generate_cover(
+                    self._img_url(li['url']), date_str
+                )
+            except Exception as e:
+                self.log.warn(f'Cover generation failed: {e}')
+                self.cover_url = self._img_url(li['url'])
 
         articles = []
 
