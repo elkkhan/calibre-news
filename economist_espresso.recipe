@@ -37,8 +37,8 @@ class Espresso(BasicNewsRecipe):
         hr { margin: 1em 0; }
     '''
 
-    def _generate_cover(self, img_url, date_str):
-        """Download lead image, crop to portrait, overlay title and date."""
+    def _generate_cover(self, img_url, date_pub):
+        """Download lead image, place on themed cover with logo and date."""
         import os
         from io import BytesIO
         from urllib.request import Request, urlopen
@@ -47,33 +47,45 @@ class Espresso(BasicNewsRecipe):
 
         COVER_W, COVER_H = 600, 900
 
+        # Determine morning/evening based on current UTC hour
+        now_utc = datetime.now(timezone.utc)
+        is_morning = now_utc.hour < 12
+
+        # Theme: morning = white bg + black text, evening = black bg + white text
+        bg_color = (255, 255, 255) if is_morning else (18, 18, 18)
+        text_color = 'black' if is_morning else 'white'
+        # Logo: morning = keep original red on white-made-transparent,
+        #        evening = recolor to white on white-made-transparent
+        logo_recolor_to_white = not is_morning
+        gradient_base = (255, 255, 255) if is_morning else (0, 0, 0)
+
         # Download the image
         req = Request(img_url, headers={'User-Agent': 'TheEconomist-Liskov-android'})
         img_data = urlopen(req).read()
         img = Image.open(BytesIO(img_data)).convert('RGB')
 
-        # Place image centered on dark background — downscale if needed, never upscale
-        bg = Image.new('RGB', (COVER_W, COVER_H), (18, 18, 18))
+        # Place image centered on background — downscale if needed, never upscale
+        bg = Image.new('RGB', (COVER_W, COVER_H), bg_color)
         src_w, src_h = img.size
         scale = min(COVER_W / src_w, COVER_H / src_h, 1.0)
         new_w, new_h = int(src_w * scale), int(src_h * scale)
         if scale < 1.0:
             img = img.resize((new_w, new_h), Image.LANCZOS)
-        # Center vertically, nudge slightly above center to leave room for date
         x = (COVER_W - new_w) // 2
         y = (COVER_H - new_h) // 2 - 30
         y = max(0, y)
         bg.paste(img, (x, y))
 
-        # Dark gradient overlays (top and bottom) via alpha compositing
+        # Gradient overlays (top and bottom) via alpha compositing
         overlay = Image.new('RGBA', (COVER_W, COVER_H), (0, 0, 0, 0))
         odraw = ImageDraw.Draw(overlay)
+        gr, gg, gb = gradient_base
         for yi in range(220):
             alpha = int(210 * (1 - yi / 220))
-            odraw.line([(0, yi), (COVER_W, yi)], fill=(0, 0, 0, alpha))
+            odraw.line([(0, yi), (COVER_W, yi)], fill=(gr, gg, gb, alpha))
         for yi in range(COVER_H - 300, COVER_H):
             alpha = int(230 * ((yi - (COVER_H - 300)) / 300))
-            odraw.line([(0, yi), (COVER_W, yi)], fill=(0, 0, 0, alpha))
+            odraw.line([(0, yi), (COVER_W, yi)], fill=(gr, gg, gb, alpha))
         bg = Image.alpha_composite(bg.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(bg)
 
@@ -95,10 +107,7 @@ class Espresso(BasicNewsRecipe):
 
         font_espresso = load_font(36)
 
-        # Economist red bar at top
-        draw.rectangle([(0, 0), (COVER_W, 6)], fill='#E3120B')
-
-        # Place the real Economist logo — try local bundled copy first, then URL
+        # Place the Economist logo — local bundled copy first, then URL
         try:
             local_logo = os.path.join(os.getcwd(), 'covers', 'economist_logo.png')
             if os.path.exists(local_logo):
@@ -108,14 +117,14 @@ class Espresso(BasicNewsRecipe):
                 req = Request(logo_url, headers={'User-Agent': 'TheEconomist-Liskov-android'})
                 logo_data = urlopen(req).read()
                 logo = Image.open(BytesIO(logo_data)).convert('RGBA')
-            # Make white pixels transparent, recolor non-white (red) to white
+            # Make white pixels transparent, recolor logo for theme
             pixels = logo.load()
             for y_px in range(logo.height):
                 for x_px in range(logo.width):
                     r, g, b, a = pixels[x_px, y_px]
                     if r > 200 and g > 200 and b > 200:
                         pixels[x_px, y_px] = (r, g, b, 0)
-                    else:
+                    elif logo_recolor_to_white:
                         pixels[x_px, y_px] = (255, 255, 255, a)
             # Scale logo to fit cover width with padding
             logo_w = COVER_W - 80
@@ -131,13 +140,13 @@ class Espresso(BasicNewsRecipe):
         text = 'Espresso'
         bbox = draw.textbbox((0, 0), text, font=font_espresso)
         tw = bbox[2] - bbox[0]
-        draw.text(((COVER_W - tw) // 2, espresso_y), text, fill='white', font=font_espresso)
+        draw.text(((COVER_W - tw) // 2, espresso_y), text, fill=text_color, font=font_espresso)
 
-        # Date at bottom — two lines: day of week + date
+        # Date at bottom — two lines: day of week + date with AM/PM
         try:
             dt = datetime.fromisoformat(date_pub.replace('Z', '+00:00'))
         except Exception:
-            dt = datetime.now(timezone.utc)
+            dt = now_utc
         day_line = dt.strftime('%A')
         date_line = dt.strftime('%B %-d')
 
@@ -152,11 +161,8 @@ class Espresso(BasicNewsRecipe):
         line_gap = 8
         total_h = th1 + line_gap + (bbox2[3] - bbox2[1])
         y_start = COVER_H - total_h - 30
-        draw.text(((COVER_W - tw1) // 2, y_start), day_line, fill='white', font=font_day)
-        draw.text(((COVER_W - tw2) // 2, y_start + th1 + line_gap), date_line, fill='white', font=font_date_num)
-
-        # Red bar at bottom
-        draw.rectangle([(0, COVER_H - 6), (COVER_W, COVER_H)], fill='#E3120B')
+        draw.text(((COVER_W - tw1) // 2, y_start), day_line, fill=text_color, font=font_day)
+        draw.text(((COVER_W - tw2) // 2, y_start + th1 + line_gap), date_line, fill=text_color, font=font_date_num)
 
         # Save to temp file
         pt = PersistentTemporaryFile('.jpg')
@@ -256,16 +262,11 @@ class Espresso(BasicNewsRecipe):
         # Generate cover from lead image
         li = content.get('leadImage') or {}
         date_pub = content.get('datePublished', '')
-        try:
-            dt = datetime.fromisoformat(date_pub.replace('Z', '+00:00'))
-            date_str = dt.strftime('%A, %B %-d, %Y')
-        except Exception:
-            date_str = datetime.now(timezone.utc).strftime('%A, %B %-d, %Y')
 
         if li.get('url'):
             try:
                 self.cover_url = self._generate_cover(
-                    self._img_url(li['url']), date_str
+                    self._img_url(li['url']), date_pub
                 )
             except Exception as e:
                 self.log.warn(f'Cover generation failed: {e}')
