@@ -47,9 +47,10 @@ class Espresso(BasicNewsRecipe):
 
         COVER_W, COVER_H = 600, 900
 
-        # Determine morning/evening based on current UTC hour
-        now_utc = datetime.now(timezone.utc)
-        is_morning = now_utc.hour < 12
+        # Determine morning/evening based on London time
+        from zoneinfo import ZoneInfo
+        now_london = datetime.now(ZoneInfo('Europe/London'))
+        is_morning = now_london.hour < 12
 
         # Theme: morning = white bg + black text, evening = black bg + white text
         bg_color = (255, 255, 255) if is_morning else (18, 18, 18)
