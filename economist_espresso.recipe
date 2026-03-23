@@ -45,7 +45,9 @@ class Espresso(BasicNewsRecipe):
 
         from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-        COVER_W, COVER_H = 600, 900
+        # Extra padding baked into image edges to prevent Kindle black bar artifacts
+        PAD = 10
+        COVER_W, COVER_H = 600 + PAD * 2, 900 + PAD * 2
 
         # Determine morning/evening based on London time
         from zoneinfo import ZoneInfo
@@ -263,6 +265,12 @@ class Espresso(BasicNewsRecipe):
         # Generate cover from lead image
         li = content.get('leadImage') or {}
         date_pub = content.get('datePublished', '')
+
+        # Set cover margins background to match theme (prevents Kindle black edge artifacts)
+        from zoneinfo import ZoneInfo
+        is_morning = datetime.now(ZoneInfo('Europe/London')).hour < 12
+        margin_bg = '#ffffff' if is_morning else '#121212'
+        self.cover_margins = (0, 0, margin_bg)
 
         if li.get('url'):
             try:
