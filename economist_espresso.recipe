@@ -45,9 +45,8 @@ class Espresso(BasicNewsRecipe):
 
         from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-        # Extra padding baked into image edges to prevent Kindle black bar artifacts
-        PAD = 10
-        COVER_W, COVER_H = 600 + PAD * 2, 900 + PAD * 2
+        # Match Kindle screen aspect ratio (3:4) to prevent black letterboxing
+        COVER_W, COVER_H = 1236, 1648
 
         # Determine morning/evening based on London time
         from zoneinfo import ZoneInfo
@@ -75,7 +74,7 @@ class Espresso(BasicNewsRecipe):
         if scale < 1.0:
             img = img.resize((new_w, new_h), Image.LANCZOS)
         x = (COVER_W - new_w) // 2
-        y = (COVER_H - new_h) // 2 - 30
+        y = (COVER_H - new_h) // 2 - 60
         y = max(0, y)
         bg.paste(img, (x, y))
 
@@ -83,11 +82,11 @@ class Espresso(BasicNewsRecipe):
         overlay = Image.new('RGBA', (COVER_W, COVER_H), (0, 0, 0, 0))
         odraw = ImageDraw.Draw(overlay)
         gr, gg, gb = gradient_base
-        for yi in range(220):
-            alpha = int(210 * (1 - yi / 220))
+        for yi in range(440):
+            alpha = int(210 * (1 - yi / 440))
             odraw.line([(0, yi), (COVER_W, yi)], fill=(gr, gg, gb, alpha))
-        for yi in range(COVER_H - 300, COVER_H):
-            alpha = int(230 * ((yi - (COVER_H - 300)) / 300))
+        for yi in range(COVER_H - 600, COVER_H):
+            alpha = int(230 * ((yi - (COVER_H - 600)) / 600))
             odraw.line([(0, yi), (COVER_W, yi)], fill=(gr, gg, gb, alpha))
         bg = Image.alpha_composite(bg.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(bg)
@@ -108,7 +107,7 @@ class Espresso(BasicNewsRecipe):
                         continue
             return ImageFont.load_default()
 
-        font_espresso = load_font(36)
+        font_espresso = load_font(72)
 
         # Place the Economist logo — local bundled copy first, then URL
         try:
@@ -130,14 +129,14 @@ class Espresso(BasicNewsRecipe):
                     elif logo_recolor_to_white:
                         pixels[x_px, y_px] = (255, 255, 255, a)
             # Scale logo to fit cover width with padding
-            logo_w = COVER_W - 80
+            logo_w = COVER_W - 160
             logo_h = int(logo.height * logo_w / logo.width)
             logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
             logo_x = (COVER_W - logo_w) // 2
-            bg.paste(logo, (logo_x, 24), logo)
-            espresso_y = 24 + logo_h + 8
+            bg.paste(logo, (logo_x, 48), logo)
+            espresso_y = 48 + logo_h + 16
         except Exception:
-            espresso_y = 30
+            espresso_y = 60
 
         # "Espresso" subtitle
         text = 'Espresso'
@@ -153,17 +152,17 @@ class Espresso(BasicNewsRecipe):
         day_line = dt.strftime('%A')
         date_line = dt.strftime('%B %-d')
 
-        font_day = load_font(64)
-        font_date_num = load_font(64)
+        font_day = load_font(128)
+        font_date_num = load_font(128)
 
         bbox1 = draw.textbbox((0, 0), day_line, font=font_day)
         bbox2 = draw.textbbox((0, 0), date_line, font=font_date_num)
         tw1 = bbox1[2] - bbox1[0]
         tw2 = bbox2[2] - bbox2[0]
         th1 = bbox1[3] - bbox1[1]
-        line_gap = 8
+        line_gap = 16
         total_h = th1 + line_gap + (bbox2[3] - bbox2[1])
-        y_start = COVER_H - total_h - 30
+        y_start = COVER_H - total_h - 60
         draw.text(((COVER_W - tw1) // 2, y_start), day_line, fill=text_color, font=font_day)
         draw.text(((COVER_W - tw2) // 2, y_start + th1 + line_gap), date_line, fill=text_color, font=font_date_num)
 
@@ -176,7 +175,7 @@ class Espresso(BasicNewsRecipe):
     def _img_url(self, url):
         return re.sub(
             r'economist\.com/',
-            'economist.com/cdn-cgi/image/width=600,quality=80,format=auto/',
+            'economist.com/cdn-cgi/image/width=1236,quality=80,format=auto/',
             url,
         )
 
