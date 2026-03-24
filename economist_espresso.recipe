@@ -186,7 +186,7 @@ class Espresso(BasicNewsRecipe):
         return 'file:///' + pt.name
 
     def _build_gobbets_html(self, content):
-        html = '<html><head><title>The World in Brief</title></head><body>'
+        html = '<html><head><meta charset="utf-8"/><title>The World in Brief</title></head><body>'
         html += '<h1>The world in brief</h1>'
         html += '<p class="sub">Catch up quickly on the global stories that matter</p>'
 
@@ -205,7 +205,7 @@ class Espresso(BasicNewsRecipe):
 
     def _build_chunk_html(self, chunk):
         title = chunk.get('title', '')
-        html = f'<html><head><title>{title}</title></head><body>'
+        html = f'<html><head><meta charset="utf-8"/><title>{title}</title></head><body>'
         html += f'<h1>{title}</h1>'
 
         ci = chunk.get('leadImage') or {}
@@ -222,7 +222,7 @@ class Espresso(BasicNewsRecipe):
         return html
 
     def _build_zinger_html(self, zinger):
-        html = '<html><head><title>Quote of the day</title></head><body>'
+        html = '<html><head><meta charset="utf-8"/><title>Quote of the day</title></head><body>'
         html += '<h1>Quote of the day</h1>'
         html += f'<blockquote>\u201c{zinger["quote"]}\u201d</blockquote>'
         if zinger.get('author'):
